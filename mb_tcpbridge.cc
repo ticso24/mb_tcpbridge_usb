@@ -234,8 +234,8 @@ main(int argc, char *argv[]) {
 	probe = 0;
 
 	while ((ch = getopt(argc, argv, "i:ps:")) != -1)
-		switch (ch) {           /* Indent the switch. */
-		case 'i':               /* Don't indent the case. */
+		switch (ch) {
+		case 'i':
 			interface = atol(optarg);
 			break;
 		case 'p':
