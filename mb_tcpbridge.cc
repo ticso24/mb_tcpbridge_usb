@@ -227,14 +227,19 @@ main(int argc, char *argv[]) {
 	char tempstring[256];
 	int res, ch;
 	struct usb_endpoint_descriptor *ep;
+	char probe;
 
 	interface = -1;
 	serial = NULL;
+	probe = 0;
 
-	while ((ch = getopt(argc, argv, "i:s:")) != -1)
+	while ((ch = getopt(argc, argv, "i:ps:")) != -1)
 		switch (ch) {           /* Indent the switch. */
 		case 'i':               /* Don't indent the case. */
 			interface = atol(optarg);
+			break;
+		case 'p':
+			probe = 1;
 			break;
 		case 's':
 			serial = optarg;
@@ -247,7 +252,7 @@ main(int argc, char *argv[]) {
 	argc -= optind;
 	argv += optind;
 
-	if (argc != 2)
+	if (argc != 2 && probe == 0)
 		usage();
 
 #if 0
@@ -294,6 +299,17 @@ main(int argc, char *argv[]) {
 						/* Check if this interface is a ubmb */
 						if (dev->config[c].interface[i].altsetting[a].bInterfaceClass == 0xff &&
 						    dev->config[c].interface[i].altsetting[a].bInterfaceSubClass == 0x02) {
+							if (probe) {
+								device = usb_open(dev);
+								res = usb_get_string_ascii(device, dev->descriptor.iProduct, tempstring, sizeof(tempstring));		
+								printf ("found \"%s\" ", tempstring);
+								res = usb_get_string_ascii(device, dev->descriptor.iSerialNumber, tempstring, sizeof(tempstring));		
+								printf ("serial=\"%s\" ", tempstring);
+								printf ("interface=%i\n", i); 
+								usb_close(device);
+								device = NULL;
+								continue;
+							}
 							/* Loop through all of the endpoints */
 							for (e = 0; e < dev->config[c].interface[i].altsetting[a].bNumEndpoints; e++) {
 								ep = &dev->config[c].interface[i].altsetting[a].endpoint[e];
@@ -315,6 +331,9 @@ main(int argc, char *argv[]) {
 		}
 	}
 	done:
+	if (probe != 0) {
+		exit(0);
+	}
 	if (device == NULL) {
 		printf("failed to open device\n");
 		exit(1);
@@ -331,6 +350,7 @@ void
 usage(void) {
 
 	printf("usage: tcpbridge [-s serial] [-i interface] ip port\n");
+	printf("       tcpbridge -p\n");
 	exit(1);
 }
 
