@@ -1,7 +1,6 @@
 #
-# Copyright (c) 2001,2002 Bernd Walter Computer Technology
+# Copyright (c) 2004 Bernd Walter Computer Technology
 # http://www.bwct.de.de
-# All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -33,9 +32,8 @@
 #
 
 CXX = g++
-CFLAGS = -g -Wall -I/usr/local/include
-CFLAGS +=`libbwct-config --cflags`
-LDFLAGS = -L/usr/local/lib -lusb
+CFLAGS = -g -Wall -I/usr/local/include `libbwct-config --cflags`
+LDFLAGS = -L/usr/local/lib -lusb `libbwct-config --libs`
 
 BIN = mb_tcpbridge
 OBJ = mb_tcpbridge.o
@@ -46,7 +44,7 @@ clean:
 	rm -f $(BIN) $(OBJ) $(BIN).core
 
 $(BIN): $(OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) -o $@ $(OBJ) `libbwct-config --libs`
+	$(CXX) $(CFLAGS) -o $@ $(OBJ) $(LDFLAGS)
 
-.c.o:
+.cc.o:
 	$(CXX) $(CFLAGS) -c $<

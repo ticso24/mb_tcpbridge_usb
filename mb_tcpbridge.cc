@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001 - 2003 Bernd Walter Computer Technology
+ * Copyright (c) 2001 - 2004 Bernd Walter Computer Technology
  * http://www.bwct.de
  * All rights reserved.
  *
@@ -59,9 +59,11 @@
 
 int main(int argc, char *argv[]);
 void usage(void);
+int usb_get_string_ascii(usb_dev_handle *dev, int index, char *buf, size_t buflen);
 
-static File device;
+static usb_dev_handle *device;
 static Mutex device_mtx;
+static int EP_in, EP_out;
 
 class FConnect : public FTask {
 private:
@@ -139,7 +141,7 @@ void
 FConnect::sendpacket() {
 
 	// TODO: check for errors
-	device.microwrite(&packet.data[0], packetlen + 4);
+	usb_bulk_write(device, EP_out, (char*)&packet.data[0], packetlen + 4, 1000);
 	return;
 }
 
@@ -147,7 +149,7 @@ void
 FConnect::getpacket() {
 	int tmp;
 
-	tmp = device.microread(&packet.data[0], 256);
+	tmp = usb_bulk_read(device, EP_in, (char*)&packet.data[0], 256, 1000);
 	if (tmp >= 0) 
 		packetlen = (uint8_t)(tmp - 4);
 }
@@ -185,17 +187,140 @@ FConnect::work() {
 }
 
 int
+usb_get_string_ascii(usb_dev_handle *dev, int index, char *buf, size_t buflen)
+{
+	char tbuf[256];
+	int ret, langid, si, di;
+
+	ret = usb_get_string(dev, index, 0, tbuf, sizeof(tbuf));
+	if (ret < 0)
+		return ret;
+	if (ret < 4)
+		return -1;
+
+	langid = tbuf[2] | (tbuf[3] << 8);
+
+	ret = usb_get_string(dev, index, langid, tbuf, sizeof(tbuf));
+	if (ret < 0)
+		return ret;
+
+	for (di = 0, si = 2; si <= tbuf[0] - 2; si += 2) {
+		if (di >= (int)(buflen - 1))
+		break;
+
+		buf[di++] = tbuf[si];
+	}
+
+	buf[di] = 0;
+
+	return di;
+}
+
+int
 main(int argc, char *argv[]) {
-	char *devname;
 	FConnect::Listen listen;
+	int interface;
+	const char* serial;
+	struct usb_bus *busses;
+	struct usb_bus *bus;
+	int c, i, a, e;
+	char tempstring[256];
+	int res, ch;
+	struct usb_endpoint_descriptor *ep;
 
-	if (argc <4)
+	interface = -1;
+	serial = NULL;
+
+	while ((ch = getopt(argc, argv, "i:s:")) != -1)
+		switch (ch) {           /* Indent the switch. */
+		case 'i':               /* Don't indent the case. */
+			interface = atol(optarg);
+			break;
+		case 's':
+			serial = optarg;
+			break;
+		case '?':
+			default:
+			usage();
+			/* NOTREACHED */
+	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc != 2)
 		usage();
-	devname = argv[1];
 
-	device.open(devname, O_RDWR);
+#if 0
+	usb_debug = 2;
+#endif
 
-	listen.add_tcp(argv[2], argv[3]);
+	usb_init();
+	usb_find_busses();
+	usb_find_devices();
+	busses = usb_get_busses();
+	
+	device = NULL;
+	for (bus = busses; bus; bus = bus->next) {
+		struct usb_device *dev;
+
+		for (dev = bus->devices; dev; dev = dev->next) {
+			/* Check if this device is a BWCT device */
+			if (dev->descriptor.iManufacturer == 0)
+				continue;
+			device = usb_open(dev);
+			res = usb_get_string_ascii(device, dev->descriptor.iManufacturer, tempstring, sizeof(tempstring));
+			usb_close(device);
+			device = NULL;
+			if (strncmp("BWCT", tempstring, res) != 0)
+				continue;
+			if (serial != NULL) {
+				if (dev->descriptor.iSerialNumber == 0)
+					continue;
+				device = usb_open(dev);
+				res = usb_get_string_ascii(device, dev->descriptor.iSerialNumber, tempstring, sizeof(tempstring));		
+				usb_close(device);
+				device = NULL;
+				if (strncmp(serial, tempstring, res) != 0)
+					continue;
+			}
+			/* Loop through all of the configurations */
+			for (c = 0; c < dev->descriptor.bNumConfigurations; c++) {
+				/* Loop through all of the interfaces */
+				for (i = 0; i < dev->config[c].bNumInterfaces; i++) {
+					if (interface >= 0 && i != interface)
+						continue;
+					/* Loop through all of the alternate settings */
+					for (a = 0; a < dev->config[c].interface[i].num_altsetting; a++) {
+						/* Check if this interface is a ubmb */
+						if (dev->config[c].interface[i].altsetting[a].bInterfaceClass == 0xff &&
+						    dev->config[c].interface[i].altsetting[a].bInterfaceSubClass == 0x02) {
+							/* Loop through all of the endpoints */
+							for (e = 0; e < dev->config[c].interface[i].altsetting[a].bNumEndpoints; e++) {
+								ep = &dev->config[c].interface[i].altsetting[a].endpoint[e];
+								if (ep->bDescriptorType == USB_DT_ENDPOINT &&
+								    (ep->bmAttributes & USB_ENDPOINT_TYPE_MASK) == USB_ENDPOINT_TYPE_BULK) {
+									if (ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
+										EP_in = ep->bEndpointAddress;
+									else
+										EP_out = ep->bEndpointAddress;
+								}
+							}
+							device = usb_open(dev);
+							usb_claim_interface(device, i);
+							goto done;
+						}
+					}
+				}
+			}
+		}
+	}
+	done:
+	if (device == NULL) {
+		printf("failed to open device\n");
+		exit(1);
+	}
+
+	listen.add_tcp(argv[0], argv[1]);
 	daemon(0,0);
 
 	listen.loop();
@@ -205,7 +330,7 @@ main(int argc, char *argv[]) {
 void
 usage(void) {
 
-	printf("usage: tcpbridge ubmbdev ip port\n");
+	printf("usage: tcpbridge [-s serial] [-i interface] ip port\n");
 	exit(1);
 }
 
