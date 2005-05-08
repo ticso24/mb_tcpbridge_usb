@@ -157,6 +157,7 @@ FConnect::getpacket() {
 void
 FConnect::work() {
 	ssize_t res;
+	uint8_t sbuf[256+6];
 
 	for (;;) {
 		// TODO: timeout handling
@@ -181,8 +182,9 @@ FConnect::work() {
 		header[0] = 0;
 		header[4] = 0;
 		header[5] = packetlen;
-		file->write(&header, sizeof(header));
-		file->write(&packet.data[2], packetlen);
+		memcpy(&sbuf[0], header, sizeof(header));
+		memcpy(&sbuf[sizeof(header)], &packet.data[2], packetlen);
+		file->write(sbuf, sizeof(header) + packetlen);
 	}
 }
 
