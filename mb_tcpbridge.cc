@@ -51,7 +51,7 @@
 #include <string.h>
 //#include <termios.h>
 #include <unistd.h>
-#include <usb.h>
+#include <libusb.h>
 
 #ifndef MAXSOCK
 #define MAXSOCK 10
@@ -59,9 +59,8 @@
 
 int main(int argc, char *argv[]);
 void usage(void);
-int usb_get_string_ascii(usb_dev_handle *dev, int index, char *buf, size_t buflen);
 
-static usb_dev_handle *device;
+static libusb_device_handle *handle;
 static Mutex device_mtx;
 static int EP_in, EP_out;
 
@@ -139,19 +138,31 @@ FConnect::threadend() {
 
 void
 FConnect::sendpacket() {
+	int rlen;
+	int err;
 
 	// TODO: check for errors
-	usb_bulk_write(device, EP_out, (char*)&packet.data[0], packetlen + 4, 1000);
+	printf("bulk write %p %i\n", (uint8_t*)&packet.data[0], packetlen + 4);
+	err = libusb_bulk_transfer(handle, EP_out, (uint8_t*)&packet.data[0], packetlen + 4, &rlen, 1000);
+	printf("bulk write did %i\n", rlen);
+	if (err < 0) {
+		printf("bulk write got %i\n", err);
+	}
 	return;
 }
 
 void
 FConnect::getpacket() {
-	int tmp;
+	int rlen;
+	int err;
 
-	tmp = usb_bulk_read(device, EP_in, (char*)&packet.data[0], 256, 1000);
-	if (tmp >= 0) 
-		packetlen = (uint8_t)(tmp - 4);
+	printf("bulk read %p\n", (char*)&packet.data[0]);
+	libusb_bulk_transfer(handle, EP_in, (uint8_t*)&packet.data[0], 256, &rlen, 1000);
+	printf("bulk read %i\n", rlen);
+	if (err < 0) {
+		printf("bulk read got %i\n", err);
+	}
+	packetlen = (uint8_t)(rlen - 4);
 }
 
 void
@@ -189,44 +200,14 @@ FConnect::work() {
 }
 
 int
-usb_get_string_ascii(usb_dev_handle *dev, int index, char *buf, size_t buflen)
-{
-	char tbuf[256];
-	int ret, langid, si, di;
-
-	ret = usb_get_string(dev, index, 0, tbuf, sizeof(tbuf));
-	if (ret < 0)
-		return ret;
-
-	langid = tbuf[2] | (tbuf[3] << 8);
-
-	ret = usb_get_string(dev, index, langid, tbuf, sizeof(tbuf));
-	if (ret < 0)
-		return ret;
-
-	for (di = 0, si = 2; si <= tbuf[0] - 2; si += 2) {
-		if (di >= (int)(buflen - 1))
-		break;
-
-		buf[di++] = tbuf[si];
-	}
-
-	buf[di] = 0;
-
-	return di;
-}
-
-int
 main(int argc, char *argv[]) {
 	FConnect::Listen listen;
 	int interface;
 	const char* serial;
-	struct usb_bus *busses;
-	struct usb_bus *bus;
-	int c, i, a, e;
+	int i, a, e;
 	char tempstring[256];
 	int res, ch;
-	struct usb_endpoint_descriptor *ep;
+	struct libusb_endpoint_descriptor *ep;
 	char probe;
 
 	interface = -1;
@@ -255,82 +236,75 @@ main(int argc, char *argv[]) {
 	if (argc != 2 && probe == 0)
 		usage();
 
-#if 0
-	usb_debug = 2;
-#endif
-
-	usb_init();
-	usb_find_busses();
-	usb_find_devices();
-	busses = usb_get_busses();
+	libusb_context *ctx;
+	libusb_init(&ctx);
+	libusb_device **devlist;
+	ssize_t devcnt = libusb_get_device_list(NULL, &devlist);
 	
-	device = NULL;
-	for (bus = busses; bus; bus = bus->next) {
-		struct usb_device *dev;
-		//printf("scan bus\n");
-
-		for (dev = bus->devices; dev; dev = dev->next) {
-			//printf("scan device\n");
-			/* Check if this device is a BWCT device */
-			if (dev->descriptor.iManufacturer == 0)
+	int devno;
+	for (devno = 0; devno < devcnt; devno++) {
+		libusb_device *device = devlist[devno];
+		libusb_device_descriptor dev;
+		libusb_get_device_descriptor(device, &dev);
+		//printf("scan device\n");
+		/* Check if this device is a BWCT device */
+		if (dev.iManufacturer == 0)
+			continue;
+		libusb_open(device, &handle);
+		res = libusb_get_string_descriptor_ascii(handle, dev.iManufacturer, (uint8_t*)tempstring, sizeof(tempstring));
+		libusb_close(handle);
+		handle = NULL;
+		//printf("found device %s\n", tempstring);
+		if (strncmp("BWCT", tempstring, res) != 0)
+			continue;
+		if (serial != NULL) {
+			if (dev.iSerialNumber == 0)
 				continue;
-			device = usb_open(dev);
-			res = usb_get_string_ascii(device, dev->descriptor.iManufacturer, tempstring, sizeof(tempstring));
-			usb_close(device);
-			device = NULL;
-			//printf("found device %s\n", tempstring);
-			if (strncmp("BWCT", tempstring, res) != 0)
+			libusb_open(device, &handle);
+			res = libusb_get_string_descriptor_ascii(handle, dev.iSerialNumber, (uint8_t*)tempstring, sizeof(tempstring));		
+			libusb_close(handle);
+			handle = NULL;
+			if (strncmp(serial, tempstring, res) != 0)
 				continue;
-			if (serial != NULL) {
-				if (dev->descriptor.iSerialNumber == 0)
-					continue;
-				device = usb_open(dev);
-				res = usb_get_string_ascii(device, dev->descriptor.iSerialNumber, tempstring, sizeof(tempstring));		
-				usb_close(device);
-				device = NULL;
-				if (strncmp(serial, tempstring, res) != 0)
-					continue;
-			}
-			/* Loop through all of the configurations */
-			for (c = 0; c < dev->descriptor.bNumConfigurations; c++) {
-				//printf("scan configuration %i\n", c);
-				/* Loop through all of the interfaces */
-				for (i = 0; i < dev->config[c].bNumInterfaces; i++) {
-					//printf("scan interface %i\n", i);
-					if (interface >= 0 && i != interface)
+		}
+		//printf("scan configuration %i\n", c);
+		/* Loop through all of the interfaces */
+		libusb_config_descriptor *config;
+		libusb_get_config_descriptor(device, 0, &config);
+		for (i = 0; i < config->bNumInterfaces; i++) {
+			//printf("scan interface %i\n", i);
+			if (interface >= 0 && i != interface)
+				continue;
+			/* Loop through all of the alternate settings */
+			for (a = 0; a < config->interface[i].num_altsetting; a++) {
+				/* Check if this interface is a ubmb */
+				if (config->interface[i].altsetting[a].bInterfaceClass == 0xff &&
+				    config->interface[i].altsetting[a].bInterfaceSubClass == 0x02) {
+					if (probe) {
+						libusb_open(device, &handle);
+						res = libusb_get_string_descriptor_ascii(handle, dev.iProduct, (uint8_t*)tempstring, sizeof(tempstring));		
+						printf("found \"%s\" ", tempstring);
+						res = libusb_get_string_descriptor_ascii(handle, dev.iSerialNumber, (uint8_t*)tempstring, sizeof(tempstring));		
+						printf("serial=\"%s\" ", tempstring);
+						printf("interface=%i\n", i); 
+						libusb_close(handle);
+						handle = NULL;
 						continue;
-					/* Loop through all of the alternate settings */
-					for (a = 0; a < dev->config[c].interface[i].num_altsetting; a++) {
-						/* Check if this interface is a ubmb */
-						if (dev->config[c].interface[i].altsetting[a].bInterfaceClass == 0xff &&
-						    dev->config[c].interface[i].altsetting[a].bInterfaceSubClass == 0x02) {
-							if (probe) {
-								device = usb_open(dev);
-								res = usb_get_string_ascii(device, dev->descriptor.iProduct, tempstring, sizeof(tempstring));		
-								printf("found \"%s\" ", tempstring);
-								res = usb_get_string_ascii(device, dev->descriptor.iSerialNumber, tempstring, sizeof(tempstring));		
-								printf("serial=\"%s\" ", tempstring);
-								printf("interface=%i\n", i); 
-								usb_close(device);
-								device = NULL;
-								continue;
-							}
-							/* Loop through all of the endpoints */
-							for (e = 0; e < dev->config[c].interface[i].altsetting[a].bNumEndpoints; e++) {
-								ep = &dev->config[c].interface[i].altsetting[a].endpoint[e];
-								if (ep->bDescriptorType == USB_DT_ENDPOINT &&
-								    (ep->bmAttributes & USB_ENDPOINT_TYPE_MASK) == USB_ENDPOINT_TYPE_BULK) {
-									if (ep->bEndpointAddress & USB_ENDPOINT_DIR_MASK)
-										EP_in = ep->bEndpointAddress;
-									else
-										EP_out = ep->bEndpointAddress;
-								}
-							}
-							device = usb_open(dev);
-							usb_claim_interface(device, i);
-							goto done;
+					}
+					/* Loop through all of the endpoints */
+					for (e = 0; e < config->interface[i].altsetting[a].bNumEndpoints; e++) {
+						ep = &config->interface[i].altsetting[a].endpoint[e];
+						if (ep->bDescriptorType == LIBUSB_DT_ENDPOINT &&
+						    (ep->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_BULK) {
+							if (ep->bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK)
+								EP_in = ep->bEndpointAddress;
+							else
+								EP_out = ep->bEndpointAddress;
 						}
 					}
+					libusb_open(device, &handle);
+					libusb_claim_interface(handle, i);
+					goto done;
 				}
 			}
 		}
@@ -339,13 +313,13 @@ main(int argc, char *argv[]) {
 	if (probe != 0) {
 		exit(0);
 	}
-	if (device == NULL) {
+	if (handle == NULL) {
 		printf("failed to open device\n");
 		exit(1);
 	}
 
 	listen.add_tcp(argv[0], argv[1]);
-	daemon(0,0);
+	//daemon(0,0);
 
 	listen.loop();
 	return 0;
