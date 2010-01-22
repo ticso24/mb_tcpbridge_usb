@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001 - 2004 Bernd Walter Computer Technology
+ * Copyright (c) 2001-04,10 Bernd Walter Computer Technology
  * http://www.bwct.de
  * All rights reserved.
  *
