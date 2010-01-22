@@ -197,8 +197,6 @@ usb_get_string_ascii(usb_dev_handle *dev, int index, char *buf, size_t buflen)
 	ret = usb_get_string(dev, index, 0, tbuf, sizeof(tbuf));
 	if (ret < 0)
 		return ret;
-	if (ret < 4)
-		return -1;
 
 	langid = tbuf[2] | (tbuf[3] << 8);
 
@@ -269,8 +267,10 @@ main(int argc, char *argv[]) {
 	device = NULL;
 	for (bus = busses; bus; bus = bus->next) {
 		struct usb_device *dev;
+		//printf("scan bus\n");
 
 		for (dev = bus->devices; dev; dev = dev->next) {
+			//printf("scan device\n");
 			/* Check if this device is a BWCT device */
 			if (dev->descriptor.iManufacturer == 0)
 				continue;
@@ -278,6 +278,7 @@ main(int argc, char *argv[]) {
 			res = usb_get_string_ascii(device, dev->descriptor.iManufacturer, tempstring, sizeof(tempstring));
 			usb_close(device);
 			device = NULL;
+			//printf("found device %s\n", tempstring);
 			if (strncmp("BWCT", tempstring, res) != 0)
 				continue;
 			if (serial != NULL) {
@@ -292,8 +293,10 @@ main(int argc, char *argv[]) {
 			}
 			/* Loop through all of the configurations */
 			for (c = 0; c < dev->descriptor.bNumConfigurations; c++) {
+				//printf("scan configuration %i\n", c);
 				/* Loop through all of the interfaces */
 				for (i = 0; i < dev->config[c].bNumInterfaces; i++) {
+					//printf("scan interface %i\n", i);
 					if (interface >= 0 && i != interface)
 						continue;
 					/* Loop through all of the alternate settings */
@@ -304,10 +307,10 @@ main(int argc, char *argv[]) {
 							if (probe) {
 								device = usb_open(dev);
 								res = usb_get_string_ascii(device, dev->descriptor.iProduct, tempstring, sizeof(tempstring));		
-								printf ("found \"%s\" ", tempstring);
+								printf("found \"%s\" ", tempstring);
 								res = usb_get_string_ascii(device, dev->descriptor.iSerialNumber, tempstring, sizeof(tempstring));		
-								printf ("serial=\"%s\" ", tempstring);
-								printf ("interface=%i\n", i); 
+								printf("serial=\"%s\" ", tempstring);
+								printf("interface=%i\n", i); 
 								usb_close(device);
 								device = NULL;
 								continue;
@@ -351,8 +354,8 @@ main(int argc, char *argv[]) {
 void
 usage(void) {
 
-	printf("usage: tcpbridge [-s serial] [-i interface] ip port\n");
-	printf("       tcpbridge -p\n");
+	printf("usage: mb_tcpbridge [-s serial] [-i interface] ip port\n");
+	printf("       mb_tcpbridge -p\n");
 	exit(1);
 }
 
