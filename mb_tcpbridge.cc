@@ -128,6 +128,7 @@ FConnect::threadstart() {
 	log("new connect");
 	// TODO do a type checking cast
 	((::Network::Net*)file.get())->nodelay(1);
+	((::Network::Net*)file.get())->settimeout(1000);
 	work();
 	return NULL;
 }
