@@ -63,6 +63,7 @@ void usage(void);
 static libusb_device_handle *handle;
 static Mutex device_mtx;
 static int EP_in, EP_out;
+static int EP_in_size, EP_out_size;
 
 class FConnect : public FTask {
 private:
@@ -140,13 +141,21 @@ void
 FConnect::sendpacket() {
 	int rlen;
 	int err;
+	int size = packetlen + 4;
 
-	// TODO: check for errors
-	printf("bulk write %p %i\n", (uint8_t*)&packet.data[0], packetlen + 4);
-	err = libusb_bulk_transfer(handle, EP_out, (uint8_t*)&packet.data[0], packetlen + 4, &rlen, 1000);
+	printf("bulk write %p %i\n", (uint8_t*)&packet.data[0], size);
+	err = libusb_bulk_transfer(handle, EP_out, (uint8_t*)&packet.data[0], size, &rlen, 1000);
 	printf("bulk write did %i\n", rlen);
 	if (err < 0) {
 		printf("bulk write got %i\n", err);
+	}
+	if ((size - size / EP_out_size * EP_out_size) == 0) {
+		printf("bulk write %p %i\n", (uint8_t*)&packet.data[0], 0);
+		err = libusb_bulk_transfer(handle, EP_out, (uint8_t*)&packet.data[0], 0, &rlen, 1000);
+		printf("bulk write did %i\n", rlen);
+		if (err < 0) {
+			printf("bulk write got %i\n", err);
+		}
 	}
 	return;
 }
@@ -296,10 +305,13 @@ main(int argc, char *argv[]) {
 						ep = &config->interface[i].altsetting[a].endpoint[e];
 						if (ep->bDescriptorType == LIBUSB_DT_ENDPOINT &&
 						    (ep->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_BULK) {
-							if (ep->bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK)
+							if (ep->bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) {
 								EP_in = ep->bEndpointAddress;
-							else
+								EP_in_size = libusb_get_max_packet_size(device, EP_in);
+							} else {
 								EP_out = ep->bEndpointAddress;
+								EP_out_size = libusb_get_max_packet_size(device, EP_out);
+							}
 						}
 					}
 					libusb_open(device, &handle);
