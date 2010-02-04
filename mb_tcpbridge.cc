@@ -217,7 +217,7 @@ main(int argc, char *argv[]) {
 	int i, a, e;
 	char tempstring[256];
 	int res, ch;
-	struct libusb_endpoint_descriptor *ep;
+	const struct libusb_endpoint_descriptor *ep;
 	char probe;
 
 	interface = -1;
