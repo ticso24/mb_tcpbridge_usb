@@ -32,8 +32,9 @@
 #
 
 CXX = g++
-CFLAGS = -g -Wall -I/usr/local/include `libbwct-config --cflags`
+CFLAGS = -g -Wall -I/usr/local/include -I/usr/include/libusb-1.0 `libbwct-config --cflags`
 LDFLAGS = -L/usr/local/lib -lusb `libbwct-config --libs`
+# Debian sid has -lusb-1.0
 
 BIN = mb_tcpbridge
 OBJ = mb_tcpbridge.o
