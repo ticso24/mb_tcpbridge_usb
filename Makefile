@@ -31,12 +31,13 @@
 # $Rev$
 #
 
-CFLAGS = -g -Wall -I/usr/local/include -I/usr/include/libusb-1.0 `libbwct-config --cflags`
+CFLAGS = -O2 -g -Wall -Wsystem-headers -Wno-format-y2k -Wno-uninitialized -I/usr/local/include -I/usr/include/libusb-1.0`libbwctmb-config --cflags`
 LDFLAGS = -L/usr/local/lib -lusb `libbwct-config --libs`
 # Debian sid has -lusb-1.0
 
 BIN = mb_tcpbridge_usb
 OBJ = mb_tcpbridge_usb.o
+BINDIR ?= /usr/local/sbin
 
 all: $(BIN)
 
@@ -48,3 +49,7 @@ $(BIN): $(OBJ)
 
 .cc.o:
 	$(CXX) $(CFLAGS) -c $<
+
+install:
+	mkdir -p $(BINDIR)
+	install $(BIN) $(BINDIR)
