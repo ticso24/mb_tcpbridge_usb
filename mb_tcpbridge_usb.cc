@@ -113,7 +113,8 @@ FConnect::Listen::newtask() {
 FConnect::Listen::newcon(int clientfd) {
 	cassert(clientfd >= 0);
 	socklen_t addrlen;
-	Matrix<char> addrdt(MAXSOCKADDR);
+	a_ptr<char> addrdt;
+	addrdt = new char[MAXSOCKADDR];
 	struct sockaddr *addr = (struct sockaddr*)addrdt.get();
 	addrlen = MAXSOCKADDR;
 	if (::getsockname(clientfd, addr, &addrlen) < 0)
@@ -164,7 +165,7 @@ FConnect::sendpacket() {
 void
 FConnect::getpacket() {
 	int rlen;
-	int err;
+	int err = 0;
 
 	printf("bulk read %p\n", (char*)&packet.data[0]);
 	libusb_bulk_transfer(handle, EP_in, (uint8_t*)&packet.data[0], 256, &rlen, 1000);
@@ -331,7 +332,7 @@ main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	listen.add_tcp(argv[0], argv[1]);
+	listen.add_tcp(argv[0], argv[1], 100);
 	//daemon(0,0);
 
 	listen.loop();
@@ -341,8 +342,8 @@ main(int argc, char *argv[]) {
 void
 usage(void) {
 
-	printf("usage: mb_tcpbridge [-s serial] [-i interface] ip port\n");
-	printf("       mb_tcpbridge -p\n");
+	printf("usage: mb_tcpbridge_usb [-s serial] [-i interface] ip port\n");
+	printf("       mb_tcpbridge_usb -p\n");
 	exit(1);
 }
 
