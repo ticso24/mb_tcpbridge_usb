@@ -201,7 +201,6 @@ FConnect::work() {
 		getpacket();
 		device_mtx.unlock();
 		packetlen += 2; // add address and function bytes
-		header[0] = 0;
 		header[4] = 0;
 		header[5] = packetlen;
 		memcpy(&sbuf[0], header, sizeof(header));
